@@ -1,0 +1,40 @@
+# Menu strings, one row per language, tab-separated.
+#
+#   lang <TAB> submenu label <TAB> item label <TAB> item tooltip
+#
+# %s is replaced by the target format in upper case (PNG, JPG, ...).
+# The submenu label is what most file managers show; the item label is only
+# used where a file manager has no submenus and the entries must stand alone.
+# "en" is the fallback and must stay first.
+en	Convert	Convert to %s	Convert the selected images to %s
+fr	Convertir	Convertir en %s	Convertir les images sélectionnées en %s
+es	Convertir	Convertir a %s	Convertir las imágenes seleccionadas a %s
+ca	Converteix	Converteix a %s	Converteix les imatges seleccionades a %s
+gl	Converter	Converter a %s	Converter as imaxes seleccionadas a %s
+pt	Converter	Converter para %s	Converter as imagens selecionadas para %s
+pt_BR	Converter	Converter para %s	Converter as imagens selecionadas para %s
+it	Converti	Converti in %s	Converti le immagini selezionate in %s
+de	Konvertieren	In %s konvertieren	Ausgewählte Bilder in %s konvertieren
+nl	Converteren	Converteren naar %s	De geselecteerde afbeeldingen naar %s converteren
+sv	Konvertera	Konvertera till %s	Konvertera de markerade bilderna till %s
+da	Konvertér	Konvertér til %s	Konvertér de valgte billeder til %s
+nb	Konverter	Konverter til %s	Konverter de valgte bildene til %s
+fi	Muunna	Muunna muotoon %s	Muunna valitut kuvat muotoon %s
+pl	Konwertuj	Konwertuj na %s	Konwertuj zaznaczone obrazy na %s
+cs	Převést	Převést na %s	Převést vybrané obrázky na %s
+sk	Konvertovať	Konvertovať na %s	Konvertovať vybrané obrázky na %s
+hu	Átalakítás	Átalakítás %s formátumra	A kijelölt képek átalakítása %s formátumra
+ro	Convertește	Convertește în %s	Convertește imaginile selectate în %s
+el	Μετατροπή	Μετατροπή σε %s	Μετατροπή των επιλεγμένων εικόνων σε %s
+ru	Конвертировать	Конвертировать в %s	Конвертировать выбранные изображения в %s
+uk	Конвертувати	Конвертувати в %s	Конвертувати вибрані зображення в %s
+tr	Dönüştür	%s biçimine dönüştür	Seçili görüntüleri %s biçimine dönüştür
+ar	تحويل	تحويل إلى %s	تحويل الصور المحددة إلى %s
+he	המרה	המרה ל-%s	המרת התמונות הנבחרות ל-%s
+ja	変換	%s に変換	選択した画像を %s に変換します
+zh_CN	转换	转换为 %s	将选中的图片转换为 %s
+zh_TW	轉換	轉換為 %s	將選取的圖片轉換為 %s
+ko	변환	%s(으)로 변환	선택한 이미지를 %s(으)로 변환합니다
+id	Konversi	Konversi ke %s	Konversi gambar terpilih ke %s
+vi	Chuyển đổi	Chuyển đổi sang %s	Chuyển đổi các ảnh đã chọn sang %s
+th	แปลง	แปลงเป็น %s	แปลงรูปภาพที่เลือกเป็น %s

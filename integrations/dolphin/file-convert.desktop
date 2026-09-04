@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Service
+ServiceTypes=KonqPopupMenu/Plugin
+X-KDE-ServiceTypes=KonqPopupMenu/Plugin
+MimeType=@MIMETYPES@
+Actions=@ACTIONS@
+@SUBMENU_LINES@
+X-KDE-Priority=TopLevel
+Icon=document-save

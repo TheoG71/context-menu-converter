@@ -1,0 +1,7 @@
+[Nemo Action]
+@NAME_LINES@
+@COMMENT_LINES@
+Exec=@BIN@ @FMT@ %F
+Icon-Name=document-save
+Selection=notnone
+Mimetypes=@MIMETYPES@
