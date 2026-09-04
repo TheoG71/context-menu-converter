@@ -1,0 +1,9 @@
+*.pyc
+__pycache__/
+pkgroot/
+fake/
+dist/
+fr/
+up/
+.claude/settings.local.json
+graphify-out/
