@@ -1,0 +1,112 @@
+name: CI
+
+env:
+  SHELLCHECK_VERSION: "0.11.0"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick libreoffice-writer
+
+      # Pinned rather than taken from apt: distributions ship widely different
+      # shellcheck versions, and three CI failures came from findings the
+      # version used locally does not report.
+      - name: Install shellcheck ${{ env.SHELLCHECK_VERSION }}
+        run: |
+          curl -sSL "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz" \
+            | tar -xJ
+          sudo install -m 755 "shellcheck-v$SHELLCHECK_VERSION/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version | grep "version:"
+
+      - name: Lint shell scripts
+        run: shellcheck -x bin/file-convert get.sh install.sh uninstall.sh tests/smoke.sh tools/*.sh packaging/*/*.sh
+
+      - name: Lint Python
+        run: python3 -m py_compile integrations/thunar/uca-edit.py
+
+      - name: Run tests
+        run: ./tests/smoke.sh
+
+      - name: Staged system-wide install (packaging path)
+        run: |
+          make install DESTDIR="$PWD/pkgroot" PREFIX=/usr
+          test -x pkgroot/usr/bin/file-convert
+          test -f pkgroot/usr/share/kio/servicemenus/file-convert-image.desktop
+          test -f pkgroot/usr/share/kio/servicemenus/file-convert-document.desktop
+          test -f pkgroot/usr/share/nautilus-python/extensions/file-convert.py
+          test -f pkgroot/usr/share/man/man1/file-convert.1
+          test -f pkgroot/usr/share/nemo/actions/file-convert-document-pdf.nemo_action
+          grep -q '"/usr/bin/file-convert"' pkgroot/usr/share/kio/servicemenus/file-convert-image.desktop
+          grep -q 'application/vnd.oasis.opendocument.text' pkgroot/usr/share/kio/servicemenus/file-convert-document.desktop
+          make uninstall DESTDIR="$PWD/pkgroot" PREFIX=/usr
+          ! find pkgroot -type f | grep . || (echo "uninstall left files behind" && exit 1)
+
+      - name: Build the KDE Store archive and round-trip it
+        run: |
+          ./packaging/kde-store/build-tarball.sh dist
+          mkdir -p kns && tar -xzf dist/*-kde.tar.gz -C kns
+          export XDG_DATA_HOME="$PWD/kns-home/data" XDG_CONFIG_HOME="$PWD/kns-home/config" XDG_BIN_HOME="$PWD/kns-home/bin"
+          ./kns/install.sh --only dolphin --no-restart
+          test -x kns-home/data/kio/servicemenus/file-convert-image.desktop
+          ./kns/uninstall.sh
+          test ! -e kns-home/data/kio/servicemenus/file-convert-image.desktop
+
+      - name: Build the Cinnamon Spices submission tree
+        run: |
+          ./packaging/cinnamon-spices/build-spice.sh dist/spice
+          test -f "dist/spice/convert-to-png@TheoG71/info.json"
+          test -f "dist/spice/convert-to-png@TheoG71/files/convert-to-png@TheoG71/icon.png"
+          python3 -c "import json,sys; json.load(open('dist/spice/convert-to-png@TheoG71/files/convert-to-png@TheoG71/metadata.json'))"
+
+      - name: Localised menus
+        run: |
+          export XDG_DATA_HOME="$PWD/fr/data" XDG_CONFIG_HOME="$PWD/fr/config" XDG_BIN_HOME="$PWD/fr/bin"
+          LANG=fr_FR.UTF-8 ./install.sh --only nautilus,dolphin,thunar,nemo --no-restart
+          test -d "fr/data/nautilus/scripts/Convertir"
+          grep -q '^X-KDE-Submenu\[fr\]=Convertir$' fr/data/kio/servicemenus/file-convert-image.desktop
+          grep -q '^Name\[fr\]=Convertir en PNG$' fr/data/nemo/actions/file-convert-image-png.nemo_action
+          grep -q '<submenu>Convertir</submenu>' fr/config/Thunar/uca.xml
+          grep -q '"uuid": "Convertir"' fr/config/nemo/actions/actions-tree.json
+          # switching language must replace the folder, not add a second one
+          ./install.sh --only nautilus --lang ja --no-restart
+          test -d "fr/data/nautilus/scripts/変換"
+          test ! -d "fr/data/nautilus/scripts/Convertir"
+          # a folder that only shares the label must survive
+          mkdir -p "fr/data/nautilus/scripts/Convert" && echo x > "fr/data/nautilus/scripts/Convert/theirs"
+          ./install.sh --only nautilus --lang fr --no-restart
+          test -f "fr/data/nautilus/scripts/Convert/theirs"
+          # uninstalling from a different locale must still find the folders
+          LANG=en_US.UTF-8 ./uninstall.sh
+          test ! -d "fr/data/nautilus/scripts/Convertir"
+          test -f "fr/data/nautilus/scripts/Convert/theirs"
+
+      - name: Upgrading from the previous naming leaves nothing behind
+        run: |
+          export XDG_DATA_HOME="$PWD/up/data" XDG_CONFIG_HOME="$PWD/up/config" XDG_BIN_HOME="$PWD/up/bin"
+          mkdir -p up/data/kio/servicemenus up/data/nemo/actions up/data/nautilus-python/extensions up/bin
+          touch up/data/kio/servicemenus/image-convert.desktop \
+                up/data/nemo/actions/image-convert-png.nemo_action \
+                up/data/nautilus-python/extensions/image-convert.py up/bin/image-convert
+          ./install.sh --only nautilus,dolphin,nemo --no-restart
+          ! find up -name 'image-convert*' | grep . || (echo "legacy files survived the upgrade" && exit 1)
+          ./uninstall.sh
+
+      - name: Per-user install into a throwaway HOME
+        run: |
+          export XDG_DATA_HOME="$PWD/fake/data" XDG_CONFIG_HOME="$PWD/fake/config" XDG_BIN_HOME="$PWD/fake/bin"
+          ./install.sh --only nemo,dolphin,thunar --no-restart
+          test -f fake/data/nemo/actions/file-convert-image-png.nemo_action
+          test -f fake/config/Thunar/uca.xml
+          ./uninstall.sh
