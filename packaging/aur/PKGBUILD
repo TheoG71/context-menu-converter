@@ -12,7 +12,7 @@ optdepends=('python-nautilus: top-level menu entry in Nautilus instead of the Sc
             'zenity: graphical error dialog on GTK desktops'
             'kdialog: graphical error dialog on KDE')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('614e4d14f937f9b946caf914f73f68e24832b2ea1896d1166796481caa5bb845')
+sha256sums=('54c66dfac27528110718317acfed5a36fa3a1073d0e480712a7f36dedd5f66c7')
 
 check() {
 	cd "$pkgname-$pkgver"
