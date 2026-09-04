@@ -1,0 +1,16 @@
+pkgbase = context-menu-converter
+	pkgdesc = Right-click image conversion for Nautilus, Dolphin, Thunar, Nemo and Caja
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/TheoG71/context-menu-converter
+	arch = any
+	license = MIT
+	depends = imagemagick
+	optdepends = python-nautilus: top-level menu entry in Nautilus instead of the Scripts submenu
+	optdepends = libnotify: desktop notification when a conversion finishes
+	optdepends = zenity: graphical error dialog on GTK desktops
+	optdepends = kdialog: graphical error dialog on KDE
+	source = context-menu-converter-1.0.0.tar.gz::https://github.com/TheoG71/context-menu-converter/archive/refs/tags/v1.0.0.tar.gz
+	sha256sums = 614e4d14f937f9b946caf914f73f68e24832b2ea1896d1166796481caa5bb845
+
+pkgname = context-menu-converter

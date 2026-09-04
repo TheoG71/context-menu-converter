@@ -1,0 +1,31 @@
+# Maintainer: Theo <theo.gus@live.fr>
+pkgname=context-menu-converter
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Right-click image conversion for Nautilus, Dolphin, Thunar, Nemo and Caja"
+arch=('any')
+url="https://github.com/TheoG71/context-menu-converter"
+license=('MIT')
+depends=('imagemagick')
+optdepends=('python-nautilus: top-level menu entry in Nautilus instead of the Scripts submenu'
+            'libnotify: desktop notification when a conversion finishes'
+            'zenity: graphical error dialog on GTK desktops'
+            'kdialog: graphical error dialog on KDE')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('614e4d14f937f9b946caf914f73f68e24832b2ea1896d1166796481caa5bb845')
+
+check() {
+	cd "$pkgname-$pkgver"
+	make check
+}
+
+package() {
+	cd "$pkgname-$pkgver"
+	make install DESTDIR="$pkgdir" PREFIX=/usr
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
+
+# Thunar's uca.xml and the Nautilus/Caja Scripts folders are per-user files with
+# no system-wide drop-in, so they are not shipped here. Users of those file
+# managers run ./install.sh from the source tree instead.
