@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(make check)",
+      "Bash(make lint)",
+      "Bash(make install DESTDIR:*)",
+      "Bash(make uninstall DESTDIR:*)",
+      "Bash(./tests/smoke.sh)",
+      "Bash(shellcheck:*)",
+      "Bash(python3 -m py_compile:*)",
+      "Bash(desktop-file-validate:*)",
+      "Bash(bash -n:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git blame:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(file:*)",
+      "Bash(magick:*)",
+      "Bash(convert:*)",
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(sed -n:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(jq:*)"
+    ],
+    "deny": [
+      "Bash(./install.sh)",
+      "Bash(./uninstall.sh)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh release:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.sh|*/file-convert) bash -n \"$f\" ;; *.py) python3 -m py_compile \"$f\" ;; esac; } 2>&1 || true",
+            "statusMessage": "Syntax-checking the script"
+          }
+        ]
+      }
+    ]
+  }
+}
