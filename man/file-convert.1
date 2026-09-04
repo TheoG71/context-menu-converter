@@ -1,0 +1,131 @@
+.TH FILE-CONVERT 1 "2026-09-04" "file-convert 1.0.0" "User Commands"
+.SH NAME
+file\-convert \- convert image and document files to another format
+.SH SYNOPSIS
+.B file\-convert
+.I format
+.IR file ...
+.SH DESCRIPTION
+.B file\-convert
+converts each
+.I file
+to
+.IR format ,
+writing the result next to the original. It is the command behind the
+"Convert" entries that
+.B context\-menu\-converter
+adds to Linux file managers, and works equally well on its own.
+.PP
+The engine is chosen from what each source file actually is, not from its
+name: images go through ImageMagick, everything else through LibreOffice. A
+single command may therefore mix both kinds and each file still takes the
+right path.
+.PP
+The original file is always kept, and an existing file is never overwritten:
+if
+.I photo.png
+already exists, the output becomes
+.IR photo\-1.png ,
+then
+.IR photo\-2.png ,
+and so on.
+.SH ARGUMENTS
+.TP
+.I format
+Target format: \fBpng\fR, \fBjpg\fR, \fBwebp\fR, \fBavif\fR, or any other
+format ImageMagick can write. AVIF and HEIC require the matching ImageMagick
+delegates, which some distributions ship separately.
+.TP
+.I file
+One or more files. Arguments that are not regular files are reported as
+failures and skipped.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.SH ENCODING
+.TP
+.B jpg
+Transparency is flattened onto white, since JPEG has no alpha channel; quality 92.
+.TP
+.B webp
+Quality 90.
+.TP
+.B avif
+Quality 60.
+.SH EXIT STATUS
+.TP
+.B 0
+Every file was converted.
+.TP
+.B 1
+At least one file failed, or the arguments were invalid.
+.SH PROGRESS
+A conversion that takes more than a moment reports progress: a bar on the
+terminal, or a desktop notification that updates in place.
+.PP
+For images the percentage is real, read from ImageMagick's progress monitor.
+LibreOffice reports nothing while it works, so a single document gets an
+indeterminate bar; with several files the bar tracks how many are done.
+.PP
+Notification daemons that support the
+.B value
+hint, such as Plasma's, draw a real progress bar. GNOME Shell's does not, so
+the bar is drawn as text in the notification body.
+.SH DIAGNOSTICS
+When run from a terminal, results are printed to standard output. When run from
+a file manager, a desktop notification reports how many files succeeded and
+names those that failed, using
+.BR notify\-send (1);
+fatal errors use
+.BR zenity (1)
+or
+.BR kdialog (1)
+if available.
+.SH EXAMPLES
+.PP
+Convert one file:
+.PP
+.RS
+.EX
+file\-convert png photo.webp
+.EE
+.RE
+.PP
+Convert every PNG in the current directory to JPG:
+.PP
+.RS
+.EX
+file\-convert jpg *.png
+.EE
+.RE
+.PP
+Convert a document to PDF:
+.PP
+.RS
+.EX
+file\-convert pdf rapport.docx
+.EE
+.RE
+.SH REQUIREMENTS
+For images,
+.BR magick (1)
+(ImageMagick 7) or
+.BR convert (1)
+(ImageMagick 6). For documents,
+.BR soffice (1)
+(LibreOffice). Only the engine a given selection needs has to be present.
+.PP
+Document conversion runs LibreOffice against a throwaway user profile, so it
+works while LibreOffice is open and never disturbs the running instance.
+.SH SEE ALSO
+.BR magick (1),
+.BR soffice (1),
+.BR notify\-send (1)
+.SH BUGS
+Report issues at
+.UR https://github.com/TheoG71/context\-menu\-converter/issues
+.UE .

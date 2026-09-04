@@ -1,0 +1,399 @@
+#!/usr/bin/env bash
+# file-convert — convert files to another format from your file manager
+# https://github.com/TheoG71/context-menu-converter
+#
+# Images go through ImageMagick, documents through LibreOffice; the engine is
+# picked from what the source file is, not from what it is called.
+set -uo pipefail
+
+VERSION="1.0.0"
+
+die() {
+    printf 'file-convert: %s\n' "$1" >&2
+    gui_error "$1"
+    exit 1
+}
+
+# Show an error in a dialog when we were launched from a file manager (no tty).
+gui_error() {
+    [ -t 2 ] && return 0
+    if command -v zenity >/dev/null 2>&1; then
+        zenity --error --title="file-convert" --text="$1" 2>/dev/null &
+    elif command -v kdialog >/dev/null 2>&1; then
+        kdialog --error "$1" 2>/dev/null &
+    elif command -v notify-send >/dev/null 2>&1; then
+        notify-send -u critical "file-convert" "$1" 2>/dev/null || true
+    fi
+}
+
+# --- progress reporting -------------------------------------------------------
+#
+# GNOME Shell's notification daemon has no progress-bar support (its
+# GetCapabilities lists no "value"), so the bar is drawn as text in the body.
+# The int:value hint is sent anyway: daemons that do support it, Plasma's among
+# them, then show a real bar as well.
+#
+# Nothing is shown for the first PROGRESS_DELAY seconds, so quick conversions
+# stay silent instead of flashing a notification that is gone before it is read.
+
+PROGRESS_DELAY=1
+BAR_WIDTH=12
+
+progress_id=""      # id of the notification being replaced
+progress_t0=$SECONDS
+progress_live=0     # 1 once something has actually been displayed
+
+progress_tick=0
+
+# bar <percent> <tick> — a text progress bar. For -1, an indeterminate one
+# whose filled block travels with the tick, so it reads as working rather than
+# stuck. The tick is passed in: bar runs in a command substitution, so anything
+# it counted itself would be discarded with the subshell.
+bar() {
+    local pct="$1" tick="$2" filled i out=""
+    if [ "$pct" -lt 0 ]; then
+        local span=$((BAR_WIDTH - 2)) pos
+        pos=$((tick % (span * 2)))
+        [ "$pos" -ge "$span" ] && pos=$((span * 2 - pos))
+        for ((i = 0; i < BAR_WIDTH; i++)); do
+            if [ "$i" -ge "$pos" ] && [ "$i" -lt $((pos + 3)) ]; then
+                out+="▰"
+            else
+                out+="▱"
+            fi
+        done
+        printf '%s' "$out"
+        return
+    fi
+    filled=$((pct * BAR_WIDTH / 100))
+    for ((i = 0; i < BAR_WIDTH; i++)); do
+        if [ "$i" -lt "$filled" ]; then out+="▰"; else out+="▱"; fi
+    done
+    printf '%s' "$out"
+}
+
+# progress_show <percent|-1> <text> — paint or repaint the progress display.
+progress_show() {
+    local pct="$1" text="$2" line
+
+    progress_tick=$((progress_tick + 1))
+    if [ "$pct" -ge 0 ]; then
+        line="$(bar "$pct" "$progress_tick") ${pct}%  $text"
+    else
+        line="$(bar -1 "$progress_tick")  $text"
+    fi
+
+    if [ -t 1 ]; then
+        printf '\r\033[K%s' "$line"
+        progress_live=1
+        return
+    fi
+
+    command -v notify-send >/dev/null 2>&1 || return 0
+    [ $((SECONDS - progress_t0)) -ge "$PROGRESS_DELAY" ] || return 0
+
+    local hint=()
+    [ "$pct" -ge 0 ] && hint=(-h "int:value:$pct")
+
+    if [ -n "$progress_id" ]; then
+        notify-send -r "$progress_id" -u low -i document-save \
+            "${hint[@]}" "$notify_title" "$line" 2>/dev/null || true
+    else
+        # -p reports the id we need to repaint in place; without it, repainting
+        # would stack a new notification every time, so progress stays off.
+        progress_id=$(notify-send -p -u low -i document-save \
+            "${hint[@]}" "$notify_title" "$line" 2>/dev/null) || progress_id=""
+        [ -n "$progress_id" ] || return 0
+    fi
+    progress_live=1
+}
+
+notify() {
+    # $1 = urgency, $2 = title, $3 = body
+    if [ -t 1 ]; then
+        [ "$progress_live" -eq 1 ] && printf '\r\033[K'
+        printf '%s: %s\n' "$2" "$3"
+        return 0
+    fi
+    # Headless contexts (containers, cron, ssh) have no session bus; a failed
+    # notification must stay silent rather than spill onto stderr.
+    command -v notify-send >/dev/null 2>&1 || return 0
+    # Replacing the progress notification keeps one bubble rather than two.
+    local replace=()
+    [ -n "$progress_id" ] && replace=(-r "$progress_id")
+    notify-send "${replace[@]}" -u "$1" -i document-save "$2" "$3" 2>/dev/null || true
+}
+
+usage() {
+    cat <<EOF
+file-convert $VERSION — convert files to another format
+
+Usage: file-convert <format> <file>...
+
+  <format>   png, jpg, webp, avif, ... for images (ImageMagick)
+             pdf for documents (LibreOffice)
+  <file>...  one or more files
+
+Converted files are written next to the originals. Existing files are never
+overwritten: a numeric suffix is added instead (report.pdf, report-1.pdf, ...).
+EOF
+}
+
+# --- engines ------------------------------------------------------------------
+magick_bin=""
+if command -v magick >/dev/null 2>&1; then
+    magick_bin="magick"
+elif command -v convert >/dev/null 2>&1; then
+    magick_bin="convert"   # ImageMagick 6
+fi
+
+soffice_bin=""
+for candidate in soffice libreoffice; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        soffice_bin="$candidate"
+        break
+    fi
+done
+
+case "${1-}" in
+    -h|--help|"") usage; [ -z "${1-}" ] && exit 1 || exit 0 ;;
+    -V|--version) echo "file-convert $VERSION"; exit 0 ;;
+esac
+
+fmt="${1,,}"; shift
+[ $# -gt 0 ] || die "no input file given"
+notify_title="Converting to ${fmt^^}"
+
+# kind_of <file> — "image" or "document", from the MIME type when file(1) is
+# available and from the extension otherwise.
+kind_of() {
+    local mime=""
+    command -v file >/dev/null 2>&1 && mime=$(file --mime-type -b -- "$1" 2>/dev/null)
+    case "$mime" in
+        image/*) echo image; return ;;
+        "") ;;
+        *) echo document; return ;;
+    esac
+    case "${1,,}" in
+        *.png|*.jpg|*.jpeg|*.webp|*.avif|*.gif|*.bmp|*.tif|*.tiff|*.heic|*.heif|*.ico)
+            echo image ;;
+        *) echo document ;;
+    esac
+}
+
+# unique_dest <src> <fmt> — a path next to src that does not exist yet.
+unique_dest() {
+    local base="${1%.*}" dst i=1
+    dst="$base.$2"
+    [ "$dst" = "$1" ] && dst="$base-converted.$2"
+    while [ -e "$dst" ]; do
+        dst="$base-$i.$2"
+        i=$((i + 1))
+    done
+    printf '%s' "$dst"
+}
+
+scratch=$(mktemp -d) || die "cannot create a temporary directory"
+trap 'rm -rf "$scratch"' EXIT
+
+ok=0
+failed=()
+images=()
+documents=()
+
+# Progress is measured in files: neither engine can say how far it is through a
+# batch, and only ImageMagick can say how far it is through one file.
+total_units=0
+done_units=0
+
+# image_progress <monitor-output> — 0..99 for the file being converted, or -1.
+#
+# -monitor counts from 0 to 100 once per phase, not once per file: a conversion
+# runs "load image", then "save image", then "encode image". Taking the raw
+# percentage would send the bar back to zero twice. Progress is therefore the
+# position of the current phase plus its percentage, over three phases.
+#
+# The phase count is not known before the conversion runs, and a bar that goes
+# backwards is worse than one that is imprecise, so three is assumed: formats
+# with a fourth phase are absorbed by the clamp, and formats with only two
+# finish the bar near 66% before the summary replaces it. It never overstates
+# how far along it is, and never moves backwards.
+PHASES=3
+
+image_progress() {
+    local records phases current pct index value
+    records=$(tr '\r' '\n' <"$1" 2>/dev/null | grep '% complete') || true
+    [ -n "$records" ] || { echo -1; return; }
+
+    phases=$(printf '%s\n' "$records" | sed 's/\[.*//' | awk '!seen[$0]++')
+    current=$(printf '%s\n' "$records" | tail -1 | sed 's/\[.*//')
+    index=$(printf '%s\n' "$phases" | grep -nxF "$current" | cut -d: -f1)
+    pct=$(printf '%s\n' "$records" | tail -1 |
+          grep -o '[0-9]\{1,3\}% complete' | sed 's/%.*//')
+    if [ -z "$index" ] || [ -z "$pct" ]; then
+        echo -1
+        return
+    fi
+
+    value=$((((index - 1) * 100 + pct) / PHASES))
+    [ "$value" -gt 99 ] && value=99
+    echo "$value"
+}
+
+# step_label <file> — "3/12  rapport.docx", or just the name for a lone file.
+step_label() {
+    if [ "$total_units" -gt 1 ]; then
+        printf '%s/%s  %s' "$((done_units + 1))" "$total_units" "$(basename -- "$1")"
+    else
+        printf '%s' "$(basename -- "$1")"
+    fi
+}
+
+# overall <percent-within-current-file|-1> — progress across the whole job.
+#
+# With nothing measurable inside the only file there is, a determinate bar would
+# sit at 0% for the whole conversion, which reads as stuck; show an
+# indeterminate one instead. With several files, finished files carry enough
+# information for a real percentage.
+overall() {
+    local within="$1"
+    [ "$total_units" -gt 0 ] || { echo -1; return; }
+    if [ "$within" -lt 0 ]; then
+        [ "$total_units" -le 1 ] && { echo -1; return; }
+        within=0
+    fi
+    echo $(((done_units * 100 + within) / total_units))
+}
+
+for src in "$@"; do
+    if [ ! -f "$src" ]; then
+        failed+=("$(basename -- "$src") (not a file)")
+        continue
+    fi
+    if [ "$(kind_of "$src")" = image ]; then
+        images+=("$src")
+    else
+        documents+=("$src")
+    fi
+done
+
+total_units=$((${#images[@]} + ${#documents[@]}))
+
+# --- images: ImageMagick ------------------------------------------------------
+if [ ${#images[@]} -gt 0 ]; then
+    [ -n "$magick_bin" ] || die "ImageMagick is not installed.
+
+Install it with one of:
+  sudo dnf install ImageMagick
+  sudo apt install imagemagick
+  sudo pacman -S imagemagick"
+
+    opts=()
+    case "$fmt" in
+        jpg|jpeg) opts=(-background white -alpha remove -alpha off -quality 92) ;;
+        webp)     opts=(-quality 90) ;;
+        avif)     opts=(-quality 60) ;;
+    esac
+
+    for src in "${images[@]}"; do
+        dst=$(unique_dest "$src" "$fmt")
+        errfile="$scratch/magick.err"
+
+        # -monitor writes "... 40 of 4000, 01% complete" records separated by
+        # carriage returns, which is the only progress either engine offers.
+        "$magick_bin" -monitor "$src" "${opts[@]}" "$dst" 2>"$errfile" &
+        mpid=$!
+        while kill -0 "$mpid" 2>/dev/null; do
+            progress_show "$(overall "$(image_progress "$errfile")")" \
+                "$(step_label "$src")"
+            sleep 0.3
+        done
+
+        if wait "$mpid"; then
+            ok=$((ok + 1))
+        else
+            rm -f -- "$dst"
+            err=$(tr '\r' '\n' <"$errfile" | grep -v '% complete' | tail -1)
+            failed+=("$(basename -- "$src"): ${err##*: }")
+        fi
+        done_units=$((done_units + 1))
+    done
+fi
+
+# --- documents: LibreOffice ---------------------------------------------------
+if [ ${#documents[@]} -gt 0 ]; then
+    [ -n "$soffice_bin" ] || die "LibreOffice is not installed.
+
+It is what converts documents to PDF. Install it with one of:
+  sudo dnf install libreoffice
+  sudo apt install libreoffice
+  sudo pacman -S libreoffice-fresh"
+
+    # A running LibreOffice locks the user profile and would make --headless
+    # fail or hijack the open window, so convert against a throwaway profile.
+    profile="$scratch/profile"
+
+    # soffice takes many files per run but writes them all into one directory,
+    # so files sharing a basename would overwrite each other. Convert in rounds,
+    # each round taking at most one file per basename.
+    round=0
+    pending=("${documents[@]}")
+    while [ ${#pending[@]} -gt 0 ]; do
+        round=$((round + 1))
+        outdir="$scratch/out$round"
+        mkdir -p "$outdir"
+
+        batch=()
+        leftover=()
+        seen=" "
+        for src in "${pending[@]}"; do
+            name=$(basename -- "${src%.*}")
+            case "$seen" in
+                *" $name "*) leftover+=("$src") ;;
+                *) batch+=("$src"); seen+="$name " ;;
+            esac
+        done
+
+        errfile="$scratch/soffice.err"
+        "$soffice_bin" "-env:UserInstallation=file://$profile" --headless \
+            --convert-to "$fmt" --outdir "$outdir" "${batch[@]}" >"$errfile" 2>&1 &
+        spid=$!
+        # LibreOffice reports nothing while it works, so the bar stays
+        # indeterminate and only the file being converted is named.
+        while kill -0 "$spid" 2>/dev/null; do
+            progress_show "$(overall -1)" "$(step_label "${batch[0]}")"
+            sleep 0.4
+        done
+        wait "$spid" || true
+        err=$(cat "$errfile")
+
+        for src in "${batch[@]}"; do
+            produced="$outdir/$(basename -- "${src%.*}").$fmt"
+            if [ -f "$produced" ]; then
+                dst=$(unique_dest "$src" "$fmt")
+                if mv -- "$produced" "$dst"; then
+                    ok=$((ok + 1))
+                else
+                    failed+=("$(basename -- "$src"): could not write next to the original")
+                fi
+            else
+                # LibreOffice exits 0 even when it converts nothing.
+                failed+=("$(basename -- "$src"): ${err##*Error: } ")
+            fi
+            done_units=$((done_units + 1))
+        done
+
+        pending=("${leftover[@]}")
+    done
+fi
+
+n=${#failed[@]}
+if [ "$n" -eq 0 ]; then
+    notify normal "Converted to ${fmt^^}" "$ok file(s)"
+    exit 0
+fi
+
+body=$(printf '%s\n' "${failed[@]}" | head -5)
+[ "$n" -gt 5 ] && body="$body"$'\n'"…and $((n - 5)) more"
+notify critical "Conversion to ${fmt^^} failed" "$ok succeeded, $n failed"$'\n'"$body"
+exit 1
